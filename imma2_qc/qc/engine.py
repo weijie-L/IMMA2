@@ -1,0 +1,76 @@
+"""质控流水线编排。
+
+处理顺序（对应文档流程的子集，坐标镜像修复与 GSHHG 海陆检查暂未纳入）：
+  1. 基础字段检查
+  2. 特殊站号处理（SHIP / MASKSTID）
+  3. 同站同刻位置冲突
+  4. 三点单点漂移
+  5. 特殊零坐标复核标记
+  6. 观测值时间序列尖峰 / 台阶（复核标记）
+  7. 严格去重
+  8. 删除少于 min_records_per_station_year 的“站点—年份”组合
+
+自动删除只写 QC_FLAG，不物理删除记录；人工可在界面中恢复。
+"""
+from __future__ import annotations
+
+import pandas as pd
+
+from .. import flags
+from ..config import QCConfig
+from ..io_utils import SOURCE_FILE_COL, SOURCE_ROW_COL, UID_COL
+from . import basic, timeseries, track
+from .basic import QC_FLAG_COL, REVIEW_COL, YEAR_COL
+
+INTERNAL_COLS = (
+    basic.DT_COL, basic.LAT_COL, basic.LON_COL, basic.VALUE_COL,
+    basic.VS_COL, basic.YEAR_COL, "_STATION", "_IS_MASKSTID",
+)
+
+
+def run_qc(df: pd.DataFrame, cfg: QCConfig) -> pd.DataFrame:
+    """执行全部自动质控，返回带 QC_FLAG / REVIEW_FLAGS 的 DataFrame。"""
+    df = basic.check_basic(df, cfg)
+    track.check_same_time_conflicts(df, cfg)
+    track.check_isolated_spikes(df, cfg)
+    track.check_zero_coordinates(df, cfg)
+    timeseries.check_series_spikes(df, cfg)
+    timeseries.check_series_steps(df, cfg)
+    _check_strict_duplicates(df, cfg)
+    _check_station_year_min(df, cfg)
+    return df
+
+
+def _check_strict_duplicates(df: pd.DataFrame, cfg: QCConfig) -> None:
+    """按输入全部业务字段严格去重（保留首条）。"""
+    business_cols = [c for c in df.columns
+                     if c not in INTERNAL_COLS
+                     and c not in (QC_FLAG_COL, REVIEW_COL,
+                                   SOURCE_FILE_COL, SOURCE_ROW_COL, UID_COL)]
+    active = df[df[QC_FLAG_COL] == ""]
+    dup = active.duplicated(subset=business_cols, keep="first")
+    df.loc[active.index[dup], QC_FLAG_COL] = flags.DELETE_STRICT_DUPLICATE
+
+
+def _check_station_year_min(df: pd.DataFrame, cfg: QCConfig) -> None:
+    active = df[df[QC_FLAG_COL] == ""]
+    counts = active.groupby(["_STATION", YEAR_COL]).size()
+    small = counts[counts < cfg.min_records_per_station_year].index
+    if len(small) == 0:
+        return
+    key = pd.MultiIndex.from_frame(active[["_STATION", YEAR_COL]])
+    mask = key.isin(small)
+    df.loc[active.index[mask], QC_FLAG_COL] = flags.DELETE_STATION_YEAR_LT_MIN
+
+
+def summarize(df: pd.DataFrame) -> pd.DataFrame:
+    """按年份统计输入 / 保留 / 各类删除 / 复核数量。"""
+    rows = []
+    for year, g in df.groupby(YEAR_COL):
+        row = {"YEAR": int(year), "INPUT": len(g),
+               "KEPT": int((g[QC_FLAG_COL] == "").sum()),
+               "REVIEW": int((g[REVIEW_COL] != "").sum())}
+        for f in flags.AUTO_DELETE_FLAGS:
+            row[f] = int((g[QC_FLAG_COL] == f).sum())
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("YEAR").reset_index(drop=True)

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imma2-qc"
+version = "0.1.0"
+description = "ICOADS 海洋观测数据质控：自动质控 + 交互式人工复核桌面程序"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "PySide6>=6.5",
+    "pyshp>=2.3",
+]
+
+[project.scripts]
+imma2-qc = "imma2_qc.gui.main_window:main"
+imma2-qc-batch = "imma2_qc.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["imma2_qc*"]
