@@ -10,3 +10,4 @@ output/
 build/
 dist/
 *.spec.bak
+build_log.txt
