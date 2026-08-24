@@ -14,7 +14,7 @@ import pandas as pd
 
 from .. import flags
 from ..config import LOOSE_MAX_SPEED_KMH, VS_SPEED_UPPER_KMH, QCConfig
-from ..geo import haversine_km
+from ..geo import gc_interpolate, haversine_km
 from .basic import (DT_COL, FIX_TYPE_COL, LAT_COL, LON_COL, QC_FLAG_COL,
                     VS_COL, add_review)
 
@@ -165,6 +165,49 @@ def check_isolated_spikes(df: pd.DataFrame, cfg: QCConfig) -> None:
             changed |= _spike_sweep(df, cfg, idx, reverse=True)
             if not changed:
                 break
+
+
+def check_interpolated_positions(df: pd.DataFrame, cfg: QCConfig) -> None:
+    """内插位置偏差检查（Met Office MarineQC / Atkinson et al. 2013 思路）。
+
+    对每个中间点 B，用前后点 A、C 按时间比例做大圆内插得到“期望位置”，
+    满足任一条件即标记复核（不自动删除）：
+      a. B 偏离期望位置超过 interp_max_dev_km——捕捉航行途中、
+         航速约束管不住的偏航坏点（大时间间隔下允许半径过大）；
+      b. B 与前后均不可达且 A→C 可正常连接，但跳距不足以触发
+         高置信三点删除（< spike_min_jump_km）——中等幅度的孤立偏差。
+    A→C 总跨度超过 interp_max_gap_hours 时内插无意义，跳过。
+    """
+    if not cfg.interp_check:
+        return
+    for _station, g in _station_groups(df):
+        idx = list(g.index)
+        for k in range(1, len(idx) - 1):
+            ia, ib, ic = idx[k - 1], idx[k], idx[k + 1]
+            a, b, c = df.loc[ia], df.loc[ib], df.loc[ic]
+            if b[LAT_COL] == 0.0 or b[LON_COL] == 0.0:
+                continue  # 零坐标点由零坐标检查处理
+            dt_ab = (b[DT_COL] - a[DT_COL]).total_seconds() / 3600.0
+            dt_ac = (c[DT_COL] - a[DT_COL]).total_seconds() / 3600.0
+            if dt_ac <= 0 or dt_ac > cfg.interp_max_gap_hours:
+                continue
+            dt_bc = dt_ac - dt_ab
+            d_ab = float(haversine_km(a[LAT_COL], a[LON_COL], b[LAT_COL], b[LON_COL]))
+            d_bc = float(haversine_km(b[LAT_COL], b[LON_COL], c[LAT_COL], c[LON_COL]))
+            d_ac = float(haversine_km(a[LAT_COL], a[LON_COL], c[LAT_COL], c[LON_COL]))
+
+            exp_lat, exp_lon = gc_interpolate(
+                float(a[LAT_COL]), float(a[LON_COL]),
+                float(c[LAT_COL]), float(c[LON_COL]), dt_ab / dt_ac)
+            deviation = float(haversine_km(b[LAT_COL], b[LON_COL], exp_lat, exp_lon))
+
+            unreachable_bridged = (
+                d_ab > allowed_distance_km(b[VS_COL], dt_ab, cfg)
+                and d_bc > allowed_distance_km(c[VS_COL], dt_bc, cfg)
+                and d_ac <= allowed_distance_km(c[VS_COL], dt_ac, cfg)
+            )
+            if deviation > cfg.interp_max_dev_km or unreachable_bridged:
+                add_review(df, [ib], flags.INTERP_POSITION_DEVIATION)
 
 
 def check_zero_coordinates(df: pd.DataFrame, cfg: QCConfig) -> None:

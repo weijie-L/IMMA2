@@ -113,6 +113,8 @@ python -m imma2_qc.cli --input-dir <清洗目录> --output-dir <输出目录> \
 | 2.7 | 单点镜像修复建议：与前后均不可达且前后可连接的点，尝试经度/纬度/双镜像；修复后须与前后可达**且**几乎落在前后连线上（绕行 ≤`mirror_fit_max_detour_km`，默认 50 km）。只给建议，界面中“采纳所选修复”后导出时才替换坐标（审计 `repaired_records`）；带建议的点不参与后续轨迹/海陆检查 | `MIRROR_FIX_SUGGESTED`（`MIRROR_LON`/`MIRROR_LAT`/`MIRROR_BOTH`） | 人工采纳 |
 | 3 | 同站同刻位置冲突（30 km 聚簇 / 100 km 冲突，唯一可达簇保留） | `DELETE_SAME_TIME_OFF_TRAJECTORY` / `SAME_TIME_DISTANT_POSITIONS` | 自动删除 / 人工复核 |
 | 4 | 三点单点漂移（按 VS_CODE 航速档上限 + 15 km 缓冲，跳距 ≥500 km、桥接 ≤100 km；正反双向扫描直至收敛） | `DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE` | 自动删除 |
+| 4.5 | Met Office MDS 航迹检查（移植自 [ET-NCMP/MarineQC](https://github.com/ET-NCMP/MarineQC)，BSD-3；Atkinson et al. 2013）：中点偏差 >150 km **且** 航段速度超模态上限 **且** 连续性证据（报告航向 DS 与计算航向差 >60°、报告航速 VS 与计算速度差 >10 节、外推位置偏差、>40 节超速，任一）三类证据齐备才标记；每站最多迭代 5 轮。`mds_track_action` 可切换 review/delete | `MDS_TRACK_CHECK` / `DELETE_MDS_TRACK_CHECK` | 人工复核（默认）或自动删除 |
+| 4.6 | 内插位置偏差：偏离前后点时间内插位置 >200 km，或与前后均不可达但跳距不足高置信删除；前后跨度 >48h 跳过 | `INTERP_POSITION_DEVIATION` | 人工复核 |
 | 5 | 特殊零坐标：(0,0)、突跳到 0 后返回（零坐标点不自动删除） | `COORDINATE_0_0` / `SUDDEN_ZERO_AND_RETURN` | 人工复核 |
 | 6 | 观测值时间序列尖峰（滑动中位数+MAD）与台阶突变 | `VALUE_SERIES_SPIKE` / `VALUE_SERIES_STEP` | 人工复核 |
 | 7 | 严格去重（全部业务字段） | `DELETE_STRICT_DUPLICATE` | 自动删除 |

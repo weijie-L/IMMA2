@@ -24,6 +24,7 @@ LAT_COL = "_LAT"
 LON_COL = "_LON"
 VALUE_COL = "_VALUE"
 VS_COL = "_VS"
+DS_COL = "_DS"
 YEAR_COL = "_YEAR"
 QC_FLAG_COL = "QC_FLAG"
 REVIEW_COL = "REVIEW_FLAGS"
@@ -88,6 +89,14 @@ def check_basic(df: pd.DataFrame, cfg: QCConfig) -> pd.DataFrame:
         df[VS_COL] = vs.where(vs_ok, -1).astype(int)
     else:
         df[VS_COL] = -1
+
+    # DS 航向码（0-9）为辅助字段：非法/缺失记为 -1，不作为删除依据
+    if cfg.ds_col and cfg.ds_col in df.columns:
+        ds = _to_numeric(df[cfg.ds_col])
+        ds_ok = ds.notna() & (ds >= 0) & (ds <= 9)
+        df[DS_COL] = ds.where(ds_ok, -1).astype(int)
+    else:
+        df[DS_COL] = -1
 
     df[DT_COL] = dt
     df[LAT_COL] = lat

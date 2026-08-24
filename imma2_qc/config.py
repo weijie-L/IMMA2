@@ -39,6 +39,7 @@ class QCConfig:
     value_col: str = "VIS"
     quality_col: str = "Q_VIS"
     vs_col: str = "VS_CODE"
+    ds_col: str = "DS"
 
     # ---- 基础检查 ----
     station_pattern: str = r"^[A-Za-z0-9]+$"  # 站号必须为非空字母数字组合
@@ -65,6 +66,15 @@ class QCConfig:
     same_time_conflict_km: float = 100.0
     track_gap_days: float = 30.0               # 超过该间隔视为新航段
     zero_jump_km: float = 500.0                # 突跳到 0 坐标的判定距离
+
+    # ---- 内插位置偏差检查（Met Office MarineQC 思路，只标记复核）----
+    interp_check: bool = True
+    interp_max_dev_km: float = 200.0           # 偏离时间内插位置的阈值
+    interp_max_gap_hours: float = 48.0         # 前后跨度超过此值不做内插检查
+
+    # ---- Met Office MDS 航迹检查（移植自 ET-NCMP/MarineQC，BSD-3）----
+    mds_track_check: bool = True
+    mds_track_action: str = "review"           # review: 标记复核; delete: 自动删除
 
     # ---- 观测值时间序列 ----
     series_spike_window: int = 5               # 滑动中位数窗口（奇数）

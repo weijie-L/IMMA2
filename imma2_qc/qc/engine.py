@@ -8,10 +8,12 @@
   4. 海陆检查（GSHHG 或内置国界，明确陆地内部点删除）
   5. 同站同刻位置冲突
   6. 三点单点漂移（正反双向扫描收敛）
-  7. 特殊零坐标复核标记
-  8. 观测值时间序列尖峰 / 台阶（复核标记）
-  9. 严格去重
- 10. 删除少于 min_records_per_station_year 的“站点—年份”组合
+  7. Met Office MDS 航迹检查（多证据组合，默认复核标记，可配置为删除）
+  8. 内插位置偏差检查（复核标记）
+  9. 特殊零坐标复核标记
+ 10. 观测值时间序列尖峰 / 台阶（复核标记）
+ 11. 严格去重
+ 12. 删除少于 min_records_per_station_year 的“站点—年份”组合
 
 自动删除只写 QC_FLAG，不物理删除记录；人工可在界面中恢复。
 """
@@ -22,12 +24,12 @@ import pandas as pd
 from .. import flags
 from ..config import QCConfig
 from ..io_utils import SOURCE_FILE_COL, SOURCE_ROW_COL, UID_COL
-from . import basic, mirror, timeseries, track
+from . import basic, mds_track, mirror, timeseries, track
 from .basic import QC_FLAG_COL, REVIEW_COL, YEAR_COL
 
 INTERNAL_COLS = (
     basic.DT_COL, basic.LAT_COL, basic.LON_COL, basic.VALUE_COL,
-    basic.VS_COL, basic.YEAR_COL, "_STATION", "_IS_MASKSTID",
+    basic.VS_COL, basic.DS_COL, basic.YEAR_COL, "_STATION", "_IS_MASKSTID",
     basic.FIX_TYPE_COL, basic.FIX_LAT_COL, basic.FIX_LON_COL,
 )
 
@@ -43,6 +45,8 @@ def run_qc(df: pd.DataFrame, cfg: QCConfig,
     _check_deep_land(df, cfg, gshhg_dir)
     track.check_same_time_conflicts(df, cfg)
     track.check_isolated_spikes(df, cfg)
+    mds_track.check_mds_track(df, cfg)
+    track.check_interpolated_positions(df, cfg)
     track.check_zero_coordinates(df, cfg)
     timeseries.check_series_spikes(df, cfg)
     timeseries.check_series_steps(df, cfg)

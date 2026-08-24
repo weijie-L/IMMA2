@@ -302,3 +302,88 @@ def test_repair_adopted_and_exported(tmp_path):
                            dtype=str)
     assert repaired.loc[0, "FIX"] == flags.FIX_MIRROR_LON
     assert float(repaired.loc[0, "ORIG_LONGITUDE"]) == pytest.approx(274.6)
+
+
+# ---------- 内插位置偏差检查 ----------
+
+def test_interp_deviation_flagged():
+    """大时间间隔下航速约束管不住、但明显偏离内插位置的点 → 复核标记。"""
+    t0 = pd.Timestamp("2003-01-01 00:00")
+    rows = [
+        {"DATE": str(t0), "LATITUDE": "10.0", "LONGITUDE": "130.0"},
+        {"DATE": str(t0 + pd.Timedelta(hours=24)),
+         "LATITUDE": "12.0", "LONGITUDE": "134.0"},   # 期望约 (10,134)，偏 222km
+        {"DATE": str(t0 + pd.Timedelta(hours=48)),
+         "LATITUDE": "10.0", "LONGITUDE": "138.0"},
+    ]
+    df = run_qc(make_df(rows), cfg_small())
+    assert flags.INTERP_POSITION_DEVIATION in df.loc[1, REVIEW_COL]
+    assert df.loc[1, QC_FLAG_COL] == ""          # 只复核不删除
+
+
+def test_interp_unreachable_midjump_flagged():
+    """与前后均不可达但跳距 < 500km（够不上高置信删除）→ 复核标记。"""
+    rows = track_rows(7)
+    rows[3]["LATITUDE"] = f"{10.0 + 0.05 * 3 + 1.0:.3f}"   # 偏约 111 km
+    df = run_qc(make_df(rows), cfg_small())
+    assert flags.INTERP_POSITION_DEVIATION in df.loc[3, REVIEW_COL]
+    assert df.loc[3, QC_FLAG_COL] == ""
+
+
+def test_interp_clean_track_not_flagged():
+    df = run_qc(make_df(track_rows(7)), cfg_small())
+    assert not any(flags.INTERP_POSITION_DEVIATION in v for v in df[REVIEW_COL])
+
+
+def test_interp_long_gap_skipped():
+    """前后跨度超过 interp_max_gap_hours 时不做内插检查。"""
+    t0 = pd.Timestamp("2003-01-01 00:00")
+    rows = [
+        {"DATE": str(t0), "LATITUDE": "10.0", "LONGITUDE": "130.0"},
+        {"DATE": str(t0 + pd.Timedelta(hours=36)),
+         "LATITUDE": "13.0", "LONGITUDE": "134.0"},
+        {"DATE": str(t0 + pd.Timedelta(hours=72)),
+         "LATITUDE": "10.0", "LONGITUDE": "138.0"},
+    ]
+    df = run_qc(make_df(rows), cfg_small())
+    assert not any(flags.INTERP_POSITION_DEVIATION in v for v in df[REVIEW_COL])
+
+
+# ---------- Met Office MDS 航迹检查 ----------
+
+def mds_rows():
+    """VS=2、DS=2（正东）匀速东行的轨迹，中间一点向北偏 200km。
+
+    坏点特征：中点偏差 200km > 150km；相邻段计算速度 ~67 km/h 超模态上限；
+    计算速度与报告航速差 > 10 节 —— 三类证据齐备。"""
+    rows = track_rows(9, lat0=10.0, dlat=0.0, lon0=130.0, dlon=0.5)
+    for r in rows:
+        r["DS"] = "2"
+    rows[4]["LATITUDE"] = "11.8"     # 向北偏约 200 km
+    return rows
+
+
+def test_mds_track_review_default():
+    df = run_qc(make_df(mds_rows()), cfg_small())
+    assert flags.MDS_TRACK_CHECK in df.loc[4, REVIEW_COL]
+    assert df.loc[4, QC_FLAG_COL] == ""
+    others = [i for i in range(9) if i != 4]
+    assert not any(flags.MDS_TRACK_CHECK in df.loc[i, REVIEW_COL] for i in others)
+
+
+def test_mds_track_delete_mode():
+    df = run_qc(make_df(mds_rows()), cfg_small(mds_track_action="delete"))
+    assert df.loc[4, QC_FLAG_COL] == flags.DELETE_MDS_TRACK_CHECK
+
+
+def test_mds_track_clean_not_flagged():
+    rows = track_rows(9, lat0=10.0, dlat=0.0, lon0=130.0, dlon=0.5)
+    for r in rows:
+        r["DS"] = "2"
+    df = run_qc(make_df(rows), cfg_small())
+    assert not any(flags.MDS_TRACK_CHECK in v for v in df[REVIEW_COL])
+
+
+def test_mds_track_disabled():
+    df = run_qc(make_df(mds_rows()), cfg_small(mds_track_check=False))
+    assert not any(flags.MDS_TRACK_CHECK in v for v in df[REVIEW_COL])
