@@ -18,19 +18,21 @@ from PySide6.QtWidgets import (
 
 from .. import flags
 from ..config import QCConfig
-from ..decisions import ACTION_DELETE, ACTION_KEEP, DecisionStore
+from ..decisions import ACTION_DELETE, ACTION_KEEP, ACTION_REPAIR, DecisionStore
 from ..export import export_results
 from ..io_utils import UID_COL, find_data_files, load_files
-from ..qc.basic import (DT_COL, LAT_COL, LON_COL, QC_FLAG_COL, REVIEW_COL,
-                        VALUE_COL, YEAR_COL)
+from ..qc.basic import (DT_COL, FIX_LAT_COL, FIX_LON_COL, FIX_TYPE_COL,
+                        LAT_COL, LON_COL, QC_FLAG_COL, REVIEW_COL, VALUE_COL,
+                        YEAR_COL)
 from ..paths import PathsConfig, load_paths
 from ..preprocess.extract import extract_raw
 from ..preprocess.fill_speed import fill_fixed_stations, fill_moving_stations
 from ..preprocess.normalize import normalize_dir
 from ..qc.engine import run_qc
 from ..status import (DELETED_STATUSES, STATUS_AUTO_DEL, STATUS_LABELS,
-                      STATUS_MANUAL_DEL, STATUS_MANUAL_KEEP, STATUS_REVIEW,
-                      compute_status)
+                      STATUS_MANUAL_DEL, STATUS_MANUAL_KEEP,
+                      STATUS_MANUAL_REPAIR, STATUS_REPAIR_SUGGESTED,
+                      STATUS_REVIEW, compute_status)
 from .basemap import load_coastlines, load_default_basemap
 from .canvas import STATUS_COL, MapCanvas, SeriesCanvas
 from .paths_dialog import PathsDialog
@@ -152,6 +154,7 @@ class MainWindow(QMainWindow):
         self.act_select.toggled.connect(self._toggle_select_mode)
         self.act_delete = tb.addAction("删除所选", self.delete_selected)
         self.act_restore = tb.addAction("恢复所选", self.restore_selected)
+        self.act_adopt = tb.addAction("采纳所选修复", self.adopt_repairs_selected)
         self.act_undo = tb.addAction("清除所选人工决定", self.clear_decisions_selected)
         self.act_clear_sel = tb.addAction("清空选择", self.clear_selection)
 
@@ -254,7 +257,8 @@ class MainWindow(QMainWindow):
         for a in (self.act_rerun, self.act_export, self.act_select):
             a.setEnabled(has_data)
         has_sel = bool(self.selection)
-        for a in (self.act_delete, self.act_restore, self.act_undo, self.act_clear_sel):
+        for a in (self.act_delete, self.act_restore, self.act_adopt,
+                  self.act_undo, self.act_clear_sel):
             a.setEnabled(has_data and has_sel)
 
     # ---------- 数据加载 / 质控 ----------
@@ -345,6 +349,13 @@ class MainWindow(QMainWindow):
         if station is not None:
             sub = sub[sub["_STATION"] == station]
         sub[STATUS_COL] = self.status.loc[sub.index]
+        # 已采纳修复的点画在修复后位置（保留原位置用于画箭头）
+        if FIX_TYPE_COL in sub.columns:
+            sub["_ORIG_LAT"] = sub[LAT_COL]
+            sub["_ORIG_LON"] = sub[LON_COL]
+            rep = (sub[STATUS_COL] == STATUS_MANUAL_REPAIR) & sub[FIX_LAT_COL].notna()
+            sub.loc[rep, LAT_COL] = sub.loc[rep, FIX_LAT_COL]
+            sub.loc[rep, LON_COL] = sub.loc[rep, FIX_LON_COL]
         visible = [st for st, cb in self.filter_boxes.items() if cb.isChecked()]
         return sub[sub[STATUS_COL].isin(visible)]
 
@@ -444,6 +455,22 @@ class MainWindow(QMainWindow):
             if uid in auto_del:
                 self.decisions.set(uid, ACTION_KEEP, self._meta_of(uid))
         self._decisions_changed()
+
+    def adopt_repairs_selected(self):
+        """采纳所选点的镜像修复建议（导出时坐标替换为建议值）。"""
+        if FIX_TYPE_COL not in self.df.columns:
+            return
+        fixable = set(self.df.loc[self.df[FIX_TYPE_COL] != "", UID_COL])
+        adopted = 0
+        for uid in self.selection:
+            if uid in fixable:
+                self.decisions.set(uid, ACTION_REPAIR, self._meta_of(uid))
+                adopted += 1
+        if adopted == 0:
+            self.statusBar().showMessage("所选点中没有镜像修复建议")
+            return
+        self._decisions_changed()
+        self.statusBar().showMessage(f"已采纳 {adopted} 个修复建议（已自动保存）")
 
     def clear_decisions_selected(self):
         for uid in self.selection:

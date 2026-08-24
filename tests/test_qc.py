@@ -235,3 +235,70 @@ def test_deep_land_check():
     assert (ocean[QC_FLAG_COL] == "").all()
     skipped = run_qc(make_df(rows), cfg_small(skip_land=True))
     assert (skipped[QC_FLAG_COL] == "").all()
+
+
+# ---------- 镜像修复建议 ----------
+
+def test_mirror_lon_suggested():
+    """经度符号丢失的点：给出 MIRROR_LON 建议而不是删除。"""
+    rows = track_rows(5, lat0=-10.0, dlat=0.0, lon0=85.0, dlon=0.2)
+    rows[2]["LONGITUDE"] = f"{360.0 - 85.4:.3f}"     # 真实 85.4 → 274.6
+    df = run_qc(make_df(rows), cfg_small())
+    assert df.loc[2, "_FIX_TYPE"] == flags.FIX_MIRROR_LON
+    assert df.loc[2, "_FIX_LON"] == pytest.approx(85.4)
+    assert df.loc[2, QC_FLAG_COL] == ""
+    assert flags.MIRROR_FIX_SUGGESTED in df.loc[2, REVIEW_COL]
+
+
+def test_mirror_lat_suggested():
+    rows = track_rows(5, lat0=-10.0, dlat=-0.2, lon0=85.0, dlon=0.05)
+    rows[2]["LATITUDE"] = "10.4"                     # 真实 -10.4 → +10.4
+    df = run_qc(make_df(rows), cfg_small())
+    assert df.loc[2, "_FIX_TYPE"] == flags.FIX_MIRROR_LAT
+    assert df.loc[2, "_FIX_LAT"] == pytest.approx(-10.4)
+    assert df.loc[2, QC_FLAG_COL] == ""
+
+
+def test_unrepairable_spike_still_deleted():
+    """镜像修不回来的坏点仍走三点漂移删除。"""
+    rows = track_rows(7)
+    rows[3]["LATITUDE"], rows[3]["LONGITUDE"] = "-60.0", "30.0"
+    df = run_qc(make_df(rows), cfg_small())
+    assert df.loc[3, "_FIX_TYPE"] == ""
+    assert df.loc[3, QC_FLAG_COL] == flags.DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE
+
+
+def test_mirror_detour_rejected():
+    """修复位置“够得着但偏离航线”时（时间间隔大），不给建议。
+
+    静止站（VS=0 缓冲 15km）间隔 10 天，允许半径只有 15km，
+    但把点造在纬度镜像后偏离 A—C 连线较远的位置无法构造……
+    改为验证 detour 阈值：把阈值压到 0 时，轻微偏航的镜像点不再被建议。"""
+    rows = track_rows(5, lat0=-10.0, dlat=0.0, lon0=85.0, dlon=0.2)
+    rows[2]["LATITUDE"] = "-10.3"                    # 镜像修复后仍偏离连线约 33km
+    rows[2]["LONGITUDE"] = f"{360.0 - 85.4:.3f}"
+    strict = run_qc(make_df(rows), cfg_small(mirror_fit_max_detour_km=0.5))
+    assert strict.loc[2, "_FIX_TYPE"] == ""
+    loose = run_qc(make_df(rows), cfg_small(mirror_fit_max_detour_km=80.0))
+    assert loose.loc[2, "_FIX_TYPE"] == flags.FIX_MIRROR_LON
+
+
+def test_repair_adopted_and_exported(tmp_path):
+    rows = track_rows(5, lat0=-10.0, dlat=0.0, lon0=85.0, dlon=0.2)
+    rows[2]["LONGITUDE"] = f"{360.0 - 85.4:.3f}"
+    df = run_qc(make_df(rows), cfg_small())
+    uid = df.loc[2, UID_COL]
+
+    dec = DecisionStore()
+    dec.set(uid, "repair")
+    status = compute_status(df, dec)
+    assert status.loc[2] == "manual_repair"
+
+    out = tmp_path / "out"
+    export_results(df, cfg_small(), dec, out)
+    cleaned = pd.read_csv(out / "t.csv", dtype=str)
+    assert cleaned.loc[2, "LONGITUDE"] == "85.4"
+    repaired = pd.read_csv(out / "_qc_audit" / "repaired_records_2003.csv",
+                           dtype=str)
+    assert repaired.loc[0, "FIX"] == flags.FIX_MIRROR_LON
+    assert float(repaired.loc[0, "ORIG_LONGITUDE"]) == pytest.approx(274.6)

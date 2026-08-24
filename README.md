@@ -110,8 +110,9 @@ python -m imma2_qc.cli --input-dir <清洗目录> --output-dir <输出目录> \
 | 2 | SHIP 占位站号 | `DELETE_SHIP` | 自动删除 |
 | 2 | MASKSTID（`keep` 策略保留但不参与轨迹检查 / `drop` 删除） | `DELETE_MASKSTID` | 可配置 |
 | 2.5 | 海陆检查：陆地向内收缩 `land_interior_km`（默认 5 km）后仍在陆地内部的点删除；GSHHG 时湖泊保守保留（`skip_land` 可关闭）。未配置 GSHHG 时用内置国界底图（无湖泊层，里海/五大湖记录可能误标） | `DELETE_DEEP_LAND` | 自动删除 |
+| 2.7 | 单点镜像修复建议：与前后均不可达且前后可连接的点，尝试经度/纬度/双镜像；修复后须与前后可达**且**几乎落在前后连线上（绕行 ≤`mirror_fit_max_detour_km`，默认 50 km）。只给建议，界面中“采纳所选修复”后导出时才替换坐标（审计 `repaired_records`）；带建议的点不参与后续轨迹/海陆检查 | `MIRROR_FIX_SUGGESTED`（`MIRROR_LON`/`MIRROR_LAT`/`MIRROR_BOTH`） | 人工采纳 |
 | 3 | 同站同刻位置冲突（30 km 聚簇 / 100 km 冲突，唯一可达簇保留） | `DELETE_SAME_TIME_OFF_TRAJECTORY` / `SAME_TIME_DISTANT_POSITIONS` | 自动删除 / 人工复核 |
-| 4 | 三点单点漂移（按 VS_CODE 航速档上限 + 15 km 缓冲，跳距 ≥500 km、桥接 ≤100 km） | `DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE` | 自动删除 |
+| 4 | 三点单点漂移（按 VS_CODE 航速档上限 + 15 km 缓冲，跳距 ≥500 km、桥接 ≤100 km；正反双向扫描直至收敛） | `DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE` | 自动删除 |
 | 5 | 特殊零坐标：(0,0)、突跳到 0 后返回（零坐标点不自动删除） | `COORDINATE_0_0` / `SUDDEN_ZERO_AND_RETURN` | 人工复核 |
 | 6 | 观测值时间序列尖峰（滑动中位数+MAD）与台阶突变 | `VALUE_SERIES_SPIKE` / `VALUE_SERIES_STEP` | 人工复核 |
 | 7 | 严格去重（全部业务字段） | `DELETE_STRICT_DUPLICATE` | 自动删除 |
@@ -120,7 +121,7 @@ python -m imma2_qc.cli --input-dir <清洗目录> --output-dir <输出目录> \
 原则：高置信异常自动删除（界面中仍可恢复）；低置信异常保留并进入复核清单；
 人工决定优先于自动规则；每条删除/复核/人工操作均可追溯。
 
-尚未纳入本版的原流程规则（后续可加）：单点/连续段镜像坐标修复、
+尚未纳入本版的原流程规则（后续可加）：连续异常段整段镜像/偏移修复、
 固定站迁移分段。
 
 ## 数据格式

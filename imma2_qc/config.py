@@ -56,6 +56,8 @@ class QCConfig:
     land_interior_km: float = 5.0              # 陆地内部判定缓冲（约 5 km）
 
     # ---- 轨迹 / 漂移 ----
+    suggest_mirror_fix: bool = True            # 镜像修复建议（人工确认后生效）
+    mirror_fit_max_detour_km: float = 50.0     # 修复点相对 A—C 直线的最大绕行量
     distance_buffer_km: float = 15.0
     spike_min_jump_km: float = 500.0
     spike_bridge_km: float = 100.0

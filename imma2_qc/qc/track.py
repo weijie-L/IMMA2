@@ -15,7 +15,8 @@ import pandas as pd
 from .. import flags
 from ..config import LOOSE_MAX_SPEED_KMH, VS_SPEED_UPPER_KMH, QCConfig
 from ..geo import haversine_km
-from .basic import DT_COL, LAT_COL, LON_COL, QC_FLAG_COL, VS_COL, add_review
+from .basic import (DT_COL, FIX_TYPE_COL, LAT_COL, LON_COL, QC_FLAG_COL,
+                    VS_COL, add_review)
 
 
 def allowed_distance_km(vs_code: int, dt_hours: float, cfg: QCConfig) -> float:
@@ -30,8 +31,10 @@ def loose_reachable(dist_km: float, dt_hours: float, cfg: QCConfig) -> bool:
 
 
 def _station_groups(df: pd.DataFrame):
-    """遍历参与轨迹检查的站点分组（排除已删除与 MASKSTID）。"""
+    """遍历参与轨迹检查的站点分组（排除已删除、MASKSTID 与带修复建议的点）。"""
     active = df[(df[QC_FLAG_COL] == "") & (~df["_IS_MASKSTID"])]
+    if FIX_TYPE_COL in df.columns:
+        active = active[active[FIX_TYPE_COL] == ""]
     for station, g in active.groupby("_STATION", sort=False):
         yield station, g.sort_values(DT_COL, kind="mergesort")
 
@@ -112,41 +115,56 @@ def _cluster_positions(rows: pd.DataFrame, cluster_km: float) -> list[list]:
     return clusters
 
 
+def _is_isolated_spike(df: pd.DataFrame, cfg: QCConfig, ia, ib, ic) -> bool:
+    a, b, c = df.loc[ia], df.loc[ib], df.loc[ic]
+    # 经度或纬度等于 0 的点不自动删除，交由零坐标检查标记复核
+    if b[LAT_COL] == 0.0 or b[LON_COL] == 0.0:
+        return False
+    dt_ab = (b[DT_COL] - a[DT_COL]).total_seconds() / 3600.0
+    dt_bc = (c[DT_COL] - b[DT_COL]).total_seconds() / 3600.0
+    dt_ac = (c[DT_COL] - a[DT_COL]).total_seconds() / 3600.0
+    d_ab = float(haversine_km(a[LAT_COL], a[LON_COL], b[LAT_COL], b[LON_COL]))
+    d_bc = float(haversine_km(b[LAT_COL], b[LON_COL], c[LAT_COL], c[LON_COL]))
+    d_ac = float(haversine_km(a[LAT_COL], a[LON_COL], c[LAT_COL], c[LON_COL]))
+    # A→B 用 B 的航速档，B→C 用 C 的航速档
+    return (
+        d_ab > allowed_distance_km(b[VS_COL], dt_ab, cfg)
+        and d_bc > allowed_distance_km(c[VS_COL], dt_bc, cfg)
+        and d_ab >= cfg.spike_min_jump_km
+        and d_bc >= cfg.spike_min_jump_km
+        and d_ac <= cfg.spike_bridge_km
+        and d_ac <= allowed_distance_km(c[VS_COL], dt_ac, cfg)
+    )
+
+
+def _spike_sweep(df: pd.DataFrame, cfg: QCConfig, idx: list, reverse: bool) -> bool:
+    """单方向扫描一遍，命中即删并继续。返回本轮是否有删除。"""
+    changed = False
+    k = len(idx) - 2 if reverse else 1
+    while 0 < k <= len(idx) - 2:
+        if _is_isolated_spike(df, cfg, idx[k - 1], idx[k], idx[k + 1]):
+            df.at[idx[k], QC_FLAG_COL] = flags.DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE
+            idx.pop(k)
+            changed = True
+            if reverse:
+                k -= 1
+        else:
+            k += -1 if reverse else 1
+    return changed
+
+
 def check_isolated_spikes(df: pd.DataFrame, cfg: QCConfig) -> None:
     """三点单点漂移：A→B、B→C 均不可达且跳距 ≥ spike_min_jump_km，
-    A→C 可正常连接且距离 ≤ spike_bridge_km 时，删除 B。"""
+    A→C 可正常连接且距离 ≤ spike_bridge_km 时，删除 B。
+
+    正向、反向交替扫描直至两个方向都不再有删除（消除贪心顺序依赖）。"""
     for _station, g in _station_groups(df):
         idx = list(g.index)
-        changed = True
-        while changed and len(idx) >= 3:
-            changed = False
-            k = 1
-            while k < len(idx) - 1:
-                ia, ib, ic = idx[k - 1], idx[k], idx[k + 1]
-                a, b, c = df.loc[ia], df.loc[ib], df.loc[ic]
-                dt_ab = (b[DT_COL] - a[DT_COL]).total_seconds() / 3600.0
-                dt_bc = (c[DT_COL] - b[DT_COL]).total_seconds() / 3600.0
-                dt_ac = (c[DT_COL] - a[DT_COL]).total_seconds() / 3600.0
-                d_ab = float(haversine_km(a[LAT_COL], a[LON_COL], b[LAT_COL], b[LON_COL]))
-                d_bc = float(haversine_km(b[LAT_COL], b[LON_COL], c[LAT_COL], c[LON_COL]))
-                d_ac = float(haversine_km(a[LAT_COL], a[LON_COL], c[LAT_COL], c[LON_COL]))
-                # 经度或纬度等于 0 的点不自动删除，交由零坐标检查标记复核
-                b_is_zero = b[LAT_COL] == 0.0 or b[LON_COL] == 0.0
-                # A→B 用 B 的航速档，B→C 用 C 的航速档
-                if (
-                    not b_is_zero
-                    and d_ab > allowed_distance_km(b[VS_COL], dt_ab, cfg)
-                    and d_bc > allowed_distance_km(c[VS_COL], dt_bc, cfg)
-                    and d_ab >= cfg.spike_min_jump_km
-                    and d_bc >= cfg.spike_min_jump_km
-                    and d_ac <= cfg.spike_bridge_km
-                    and d_ac <= allowed_distance_km(c[VS_COL], dt_ac, cfg)
-                ):
-                    df.at[ib, QC_FLAG_COL] = flags.DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE
-                    idx.pop(k)
-                    changed = True
-                else:
-                    k += 1
+        while len(idx) >= 3:
+            changed = _spike_sweep(df, cfg, idx, reverse=False)
+            changed |= _spike_sweep(df, cfg, idx, reverse=True)
+            if not changed:
+                break
 
 
 def check_zero_coordinates(df: pd.DataFrame, cfg: QCConfig) -> None:

@@ -5,20 +5,24 @@ import pandas as pd
 
 from . import flags
 from .decisions import DecisionStore
-from .qc.basic import QC_FLAG_COL, REVIEW_COL
+from .qc.basic import FIX_TYPE_COL, QC_FLAG_COL, REVIEW_COL
 
 STATUS_KEPT = "kept"              # 保留
 STATUS_AUTO_DEL = "auto_del"      # 程序自动删除（可人工恢复）
 STATUS_REVIEW = "review"          # 保留但待人工复核
+STATUS_REPAIR_SUGGESTED = "repair_suggested"  # 镜像修复建议（待人工采纳）
 STATUS_MANUAL_DEL = "manual_del"  # 人工删除
 STATUS_MANUAL_KEEP = "manual_keep"  # 人工恢复（推翻自动删除）
+STATUS_MANUAL_REPAIR = "manual_repair"  # 人工采纳修复（导出时替换坐标）
 
 STATUS_LABELS = {
     STATUS_KEPT: "保留",
     STATUS_AUTO_DEL: "自动删除",
     STATUS_REVIEW: "待复核",
+    STATUS_REPAIR_SUGGESTED: "建议修复",
     STATUS_MANUAL_DEL: "人工删除",
     STATUS_MANUAL_KEEP: "人工恢复",
+    STATUS_MANUAL_REPAIR: "已采纳修复",
 }
 
 DELETED_STATUSES = (STATUS_AUTO_DEL, STATUS_MANUAL_DEL)
@@ -31,7 +35,10 @@ def compute_status(df: pd.DataFrame, decisions: DecisionStore) -> pd.Series:
 
     status = pd.Series(STATUS_KEPT, index=df.index)
     status[review] = STATUS_REVIEW
+    if FIX_TYPE_COL in df.columns:
+        status[(df[FIX_TYPE_COL] != "") & ~auto_del] = STATUS_REPAIR_SUGGESTED
     status[auto_del] = STATUS_AUTO_DEL
     status[manual == flags.MANUAL_KEEP] = STATUS_MANUAL_KEEP
     status[manual == flags.MANUAL_DELETE] = STATUS_MANUAL_DEL
+    status[manual == flags.MANUAL_REPAIR] = STATUS_MANUAL_REPAIR
     return status

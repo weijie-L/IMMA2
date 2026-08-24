@@ -52,6 +52,8 @@ def main(out_dir: str = "sample_data") -> None:
         if month == 1:
             # 注入异常：单点位置尖峰
             df.loc[30, ["LATITUDE", "LONGITUDE"]] = [-60.0, 30.0]
+            # 经度镜像错误（符号丢失）：应产生修复建议而不是删除
+            df.loc[35, "LONGITUDE"] = round(360.0 - float(df.loc[35, "LONGITUDE"]), 3)
             # VIS 尖峰
             df.loc[45, "VIS"] = 90.0
             # 缺失/非法值

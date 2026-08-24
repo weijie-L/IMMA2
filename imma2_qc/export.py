@@ -21,7 +21,8 @@ from . import flags
 from .config import QCConfig
 from .decisions import DecisionStore
 from .io_utils import SOURCE_FILE_COL, SOURCE_ROW_COL, UID_COL
-from .qc.basic import QC_FLAG_COL, REVIEW_COL, YEAR_COL
+from .qc.basic import (FIX_LAT_COL, FIX_LON_COL, FIX_TYPE_COL, QC_FLAG_COL,
+                       REVIEW_COL, YEAR_COL)
 from .qc.engine import INTERNAL_COLS, summarize
 
 MANUAL_COL = "MANUAL"
@@ -40,6 +41,24 @@ def apply_decisions(df: pd.DataFrame, decisions: DecisionStore) -> pd.DataFrame:
     return df
 
 
+def _format_coord(value: float) -> str:
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    return "0" if text in {"", "-0"} else text
+
+
+def _apply_repairs(df: pd.DataFrame, cfg: QCConfig) -> pd.DataFrame:
+    """已采纳的镜像修复：把业务经纬度列替换为建议坐标。"""
+    if FIX_TYPE_COL not in df.columns:
+        return df
+    repaired = (df[MANUAL_COL] == flags.MANUAL_REPAIR) & df[FIX_LAT_COL].notna()
+    if not repaired.any():
+        return df
+    df = df.copy()
+    df.loc[repaired, cfg.lat_col] = df.loc[repaired, FIX_LAT_COL].map(_format_coord)
+    df.loc[repaired, cfg.lon_col] = df.loc[repaired, FIX_LON_COL].map(_format_coord)
+    return df
+
+
 def export_results(df: pd.DataFrame, cfg: QCConfig, decisions: DecisionStore,
                    output_dir: str | Path, overwrite: bool = False) -> Path:
     """导出清洗结果与审计文件，返回输出目录。"""
@@ -50,6 +69,7 @@ def export_results(df: pd.DataFrame, cfg: QCConfig, decisions: DecisionStore,
     audit_dir.mkdir(parents=True, exist_ok=True)
 
     df = apply_decisions(df, decisions)
+    df = _apply_repairs(df, cfg)
     business_cols = [c for c in df.columns
                      if c not in INTERNAL_COLS
                      and c not in (QC_FLAG_COL, REVIEW_COL, MANUAL_COL, FINAL_DELETED_COL,
@@ -66,6 +86,10 @@ def export_results(df: pd.DataFrame, cfg: QCConfig, decisions: DecisionStore,
                                   SOURCE_FILE_COL, SOURCE_ROW_COL, UID_COL]
     deleted = df[df[FINAL_DELETED_COL]]
     review = kept[kept[REVIEW_COL] != ""]
+    repaired = kept[kept[MANUAL_COL] == flags.MANUAL_REPAIR] \
+        if FIX_TYPE_COL in df.columns else kept.iloc[0:0]
+    from .qc.basic import LAT_COL as _LAT, LON_COL as _LON
+    repair_cols = audit_cols + [_LAT, _LON, FIX_TYPE_COL, FIX_LAT_COL, FIX_LON_COL]
     for year in sorted(df[YEAR_COL].unique()):
         d = deleted[deleted[YEAR_COL] == year]
         if len(d):
@@ -75,13 +99,23 @@ def export_results(df: pd.DataFrame, cfg: QCConfig, decisions: DecisionStore,
         if len(r):
             r[audit_cols].to_csv(audit_dir / f"review_records_{year}.csv",
                                  index=False, encoding="utf-8")
+        rp = repaired[repaired[YEAR_COL] == year]
+        if len(rp):
+            rp[repair_cols].rename(columns={
+                _LAT: "ORIG_LATITUDE", _LON: "ORIG_LONGITUDE",
+                FIX_TYPE_COL: "FIX", FIX_LAT_COL: "FIX_LATITUDE",
+                FIX_LON_COL: "FIX_LONGITUDE"}).to_csv(
+                audit_dir / f"repaired_records_{year}.csv",
+                index=False, encoding="utf-8")
 
     summary = summarize(df)
     manual_del = df[df[MANUAL_COL] == flags.MANUAL_DELETE].groupby(YEAR_COL).size()
     manual_keep = df[df[MANUAL_COL] == flags.MANUAL_KEEP].groupby(YEAR_COL).size()
+    manual_repair = df[df[MANUAL_COL] == flags.MANUAL_REPAIR].groupby(YEAR_COL).size()
     final_kept = kept.groupby(YEAR_COL).size()
     summary["MANUAL_DELETE"] = summary["YEAR"].map(manual_del).fillna(0).astype(int)
     summary["MANUAL_KEEP"] = summary["YEAR"].map(manual_keep).fillna(0).astype(int)
+    summary["MANUAL_REPAIR"] = summary["YEAR"].map(manual_repair).fillna(0).astype(int)
     summary["FINAL_KEPT"] = summary["YEAR"].map(final_kept).fillna(0).astype(int)
     for year in summary["YEAR"]:
         summary[summary["YEAR"] == year].to_csv(

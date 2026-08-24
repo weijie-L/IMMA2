@@ -17,9 +17,14 @@ SELECT_EDGE = "#fab219"
 
 # status -> (颜色, matplotlib marker, 点大小, zorder)
 STATUS_STYLE = {
-    "kept":        ("#2a78d6", "o", 14, 3),
-    "review":      ("#c98500", "^", 30, 4),
-    "auto_del":    ("#d03b3b", "x", 34, 5),
-    "manual_del":  ("#898781", "x", 34, 5),
-    "manual_keep": ("#4a3aa7", "o", 30, 5),
+    "kept":             ("#2a78d6", "o", 14, 3),
+    "review":           ("#c98500", "^", 30, 4),
+    "repair_suggested": ("#1baf7a", "D", 30, 5),
+    "auto_del":         ("#d03b3b", "x", 34, 5),
+    "manual_del":       ("#898781", "x", 34, 5),
+    "manual_keep":      ("#4a3aa7", "o", 30, 5),
+    # 与“人工恢复”同紫色（同为人工确认保留），实心方块区分
+    "manual_repair":    ("#4a3aa7", "s", 30, 5),
 }
+
+REPAIR_ARROW = "#1baf7a"   # 修复建议箭头：原位置 → 建议位置

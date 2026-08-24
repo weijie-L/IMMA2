@@ -15,6 +15,7 @@ from .io_utils import UID_COL
 
 ACTION_DELETE = "delete"   # 人工删除（含删除程序未发现的离群点）
 ACTION_KEEP = "keep"       # 人工恢复（推翻程序的自动删除）
+ACTION_REPAIR = "repair"   # 采纳镜像修复建议（导出时替换坐标）
 
 
 class DecisionStore:
@@ -36,7 +37,7 @@ class DecisionStore:
         return row["ACTION"] if row else None
 
     def set(self, uid: str, action: str, meta: dict | None = None) -> None:
-        if action not in (ACTION_DELETE, ACTION_KEEP):
+        if action not in (ACTION_DELETE, ACTION_KEEP, ACTION_REPAIR):
             raise ValueError(f"未知的人工决定: {action}")
         row = {"UID": uid, "ACTION": action,
                "DECIDED_AT": datetime.now(timezone.utc).isoformat(timespec="seconds")}
@@ -50,7 +51,7 @@ class DecisionStore:
     def load(self, path: str | Path) -> None:
         df = pd.read_csv(path, dtype=str, keep_default_na=False)
         for _, r in df.iterrows():
-            if r.get("ACTION") in (ACTION_DELETE, ACTION_KEEP):
+            if r.get("ACTION") in (ACTION_DELETE, ACTION_KEEP, ACTION_REPAIR):
                 self._rows[r["UID"]] = dict(r)
 
     def save(self, path: str | Path | None = None) -> Path:
@@ -65,7 +66,9 @@ class DecisionStore:
 
     def manual_column(self, df: pd.DataFrame) -> pd.Series:
         """返回与 df 对齐的人工决定列：MANUAL_DELETE / MANUAL_KEEP / 空字符串。"""
-        mapping = {uid: (flags.MANUAL_DELETE if r["ACTION"] == ACTION_DELETE
-                         else flags.MANUAL_KEEP)
+        action_to_flag = {ACTION_DELETE: flags.MANUAL_DELETE,
+                          ACTION_KEEP: flags.MANUAL_KEEP,
+                          ACTION_REPAIR: flags.MANUAL_REPAIR}
+        mapping = {uid: action_to_flag[r["ACTION"]]
                    for uid, r in self._rows.items()}
         return df[UID_COL].map(mapping).fillna("")

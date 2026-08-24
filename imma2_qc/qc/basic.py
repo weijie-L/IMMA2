@@ -27,6 +27,9 @@ VS_COL = "_VS"
 YEAR_COL = "_YEAR"
 QC_FLAG_COL = "QC_FLAG"
 REVIEW_COL = "REVIEW_FLAGS"
+FIX_TYPE_COL = "_FIX_TYPE"   # 镜像修复建议：类型 / 建议坐标
+FIX_LAT_COL = "_FIX_LAT"
+FIX_LON_COL = "_FIX_LON"
 
 
 def _clean_series(s: pd.Series) -> pd.Series:

@@ -15,7 +15,8 @@ from PySide6.QtCore import Signal
 
 from ..geo import lon_to_pm180
 from ..io_utils import UID_COL
-from ..qc.basic import DT_COL, LAT_COL, LON_COL, VALUE_COL
+from ..qc.basic import (DT_COL, FIX_LAT_COL, FIX_LON_COL, LAT_COL, LON_COL,
+                        VALUE_COL)
 from ..status import STATUS_LABELS
 from . import palette
 
@@ -162,6 +163,24 @@ class MapCanvas(BaseCanvas):
                          color=palette.COAST, linewidth=0.5, zorder=1)
         if self.draw_track:
             self._plot_track(sub)
+        self._plot_repair_arrows(sub)
+
+    def _plot_repair_arrows(self, sub: pd.DataFrame) -> None:
+        """镜像修复：原位置 → 建议位置的箭头。"""
+        if FIX_LAT_COL not in sub.columns:
+            return
+        rows = sub[sub[STATUS_COL].isin(("repair_suggested", "manual_repair"))
+                   & sub[FIX_LAT_COL].notna()]
+        for _, r in rows.iterrows():
+            x0 = float(lon_to_pm180(r.get("_ORIG_LON", r[LON_COL])))
+            y0 = float(r.get("_ORIG_LAT", r[LAT_COL]))
+            x1 = float(lon_to_pm180(r[FIX_LON_COL]))
+            y1 = float(r[FIX_LAT_COL])
+            self.ax.annotate(
+                "", xy=(x1, y1), xytext=(x0, y0),
+                arrowprops=dict(arrowstyle="->", color=palette.REPAIR_ARROW,
+                                linewidth=1.1, alpha=0.8),
+                zorder=6)
 
     def _plot_track(self, sub: pd.DataFrame) -> None:
         alive = sub[sub[STATUS_COL].isin(["kept", "review", "manual_keep"])]
