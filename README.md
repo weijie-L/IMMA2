@@ -44,6 +44,24 @@ imma2-qc
 “设置 → 选择 GSHHG 海岸线目录”可换用 GSHHG 海岸线（自动优先粗分辨率保证流畅），
 “设置 → 恢复内置国界底图”切回默认。
 
+## 打包成 exe
+
+在 **Windows** 机器上（PyInstaller 不支持跨平台打包），仓库根目录执行：
+
+```bat
+packaging\build_exe.bat
+```
+
+脚本会安装依赖、按 `packaging/IMMA2-QC.spec` 打包并自检，
+产物为单文件 `dist\IMMA2-QC.exe`（约 100–150 MB，含 Python、Qt、
+matplotlib 和内置国界底图），复制到任何 Windows 电脑双击即可运行，
+无需安装 Python。
+
+- 手动打包：`pip install -r requirements.txt pyinstaller` 后执行
+  `pyinstaller --clean --noconfirm packaging/IMMA2-QC.spec`；
+- 验证产物：`dist\IMMA2-QC.exe --selfcheck`（退出码 0 表示资源完整）；
+- 单文件模式首次启动需解压到临时目录，会慢几秒，属正常现象。
+
 ## 命令行批处理（不开界面）
 
 ```bash

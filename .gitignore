@@ -7,3 +7,6 @@ sample_data/
 output/
 *.egg-info/
 .DS_Store
+build/
+dist/
+*.spec.bak
