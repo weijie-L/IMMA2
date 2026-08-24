@@ -219,3 +219,19 @@ def test_default_basemap_loads():
     allpts = np.vstack(lines)
     assert allpts[:, 0].min() >= -180.0 and allpts[:, 0].max() <= 180.0
     assert allpts[:, 1].min() >= -90.0 and allpts[:, 1].max() <= 90.0
+
+
+# ---------- 海陆检查 ----------
+
+def test_deep_land_check():
+    pytest.importorskip("shapely")
+    # 一条完全在陆地内部（中亚）的“航迹”应整体标记 DELETE_DEEP_LAND
+    rows = track_rows(5, lat0=45.0, lon0=85.0, dlat=0.01, dlon=0.01)
+    df = run_qc(make_df(rows), cfg_small())
+    assert (df[QC_FLAG_COL] == flags.DELETE_DEEP_LAND).all()
+
+    # 海上航迹不受影响；skip_land 时不检查
+    ocean = run_qc(make_df(track_rows(5)), cfg_small())
+    assert (ocean[QC_FLAG_COL] == "").all()
+    skipped = run_qc(make_df(rows), cfg_small(skip_land=True))
+    assert (skipped[QC_FLAG_COL] == "").all()

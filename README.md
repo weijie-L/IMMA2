@@ -109,6 +109,7 @@ python -m imma2_qc.cli --input-dir <清洗目录> --output-dir <输出目录> \
 | 1 | 基础字段：站号/日期/经纬度/观测值/质量码/航速档合法性，缺失值统一识别，经度归一化 [0,360) | `DELETE_INVALID_BASIC_FIELD` | 自动删除 |
 | 2 | SHIP 占位站号 | `DELETE_SHIP` | 自动删除 |
 | 2 | MASKSTID（`keep` 策略保留但不参与轨迹检查 / `drop` 删除） | `DELETE_MASKSTID` | 可配置 |
+| 2.5 | 海陆检查：陆地向内收缩 `land_interior_km`（默认 5 km）后仍在陆地内部的点删除；GSHHG 时湖泊保守保留（`skip_land` 可关闭）。未配置 GSHHG 时用内置国界底图（无湖泊层，里海/五大湖记录可能误标） | `DELETE_DEEP_LAND` | 自动删除 |
 | 3 | 同站同刻位置冲突（30 km 聚簇 / 100 km 冲突，唯一可达簇保留） | `DELETE_SAME_TIME_OFF_TRAJECTORY` / `SAME_TIME_DISTANT_POSITIONS` | 自动删除 / 人工复核 |
 | 4 | 三点单点漂移（按 VS_CODE 航速档上限 + 15 km 缓冲，跳距 ≥500 km、桥接 ≤100 km） | `DELETE_HIGH_CONFIDENCE_ISOLATED_SPIKE` | 自动删除 |
 | 5 | 特殊零坐标：(0,0)、突跳到 0 后返回（零坐标点不自动删除） | `COORDINATE_0_0` / `SUDDEN_ZERO_AND_RETURN` | 人工复核 |
@@ -120,7 +121,7 @@ python -m imma2_qc.cli --input-dir <清洗目录> --output-dir <输出目录> \
 人工决定优先于自动规则；每条删除/复核/人工操作均可追溯。
 
 尚未纳入本版的原流程规则（后续可加）：单点/连续段镜像坐标修复、
-GSHHG 海陆检查（`DELETE_DEEP_LAND`）、固定站迁移分段。
+固定站迁移分段。
 
 ## 数据格式
 

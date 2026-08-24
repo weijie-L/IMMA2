@@ -51,6 +51,10 @@ class QCConfig:
     drop_ship: bool = True                     # SHIP 为通用占位站号，直接删除
     maskstid_policy: str = "keep"              # keep: 保留但不参与轨迹类检查; drop: 删除
 
+    # ---- 海陆检查 ----
+    skip_land: bool = False                    # True 时跳过海陆检查
+    land_interior_km: float = 5.0              # 陆地内部判定缓冲（约 5 km）
+
     # ---- 轨迹 / 漂移 ----
     distance_buffer_km: float = 15.0
     spike_min_jump_km: float = 500.0

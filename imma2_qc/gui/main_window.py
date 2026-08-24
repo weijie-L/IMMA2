@@ -48,11 +48,13 @@ class QCWorker(QThread):
     done = Signal(object, object)   # raw_df, qc_df
     failed = Signal(str)
 
-    def __init__(self, input_dir: Path, cfg: QCConfig, raw_df=None):
+    def __init__(self, input_dir: Path, cfg: QCConfig, raw_df=None,
+                 gshhg_dir: str | None = None):
         super().__init__()
         self.input_dir = input_dir
         self.cfg = cfg
         self.raw_df = raw_df
+        self.gshhg_dir = gshhg_dir
 
     def run(self):
         try:
@@ -62,7 +64,7 @@ class QCWorker(QThread):
                 if not files:
                     raise ValueError(f"目录中没有 CSV 数据文件: {self.input_dir}")
                 raw = load_files(files, self.cfg)
-            qc = run_qc(raw, self.cfg)
+            qc = run_qc(raw, self.cfg, gshhg_dir=self.gshhg_dir)
             self.done.emit(raw, qc)
         except Exception:
             self.failed.emit(traceback.format_exc())
@@ -275,7 +277,8 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage("正在读取数据并运行自动质控…")
         QApplication.setOverrideCursor(Qt.WaitCursor)
-        self.worker = QCWorker(self.input_dir, self.cfg, raw_df)
+        self.worker = QCWorker(self.input_dir, self.cfg, raw_df,
+                               gshhg_dir=self.paths.gshhg_dir or None)
         self.worker.done.connect(self._qc_done)
         self.worker.failed.connect(self._qc_failed)
         self.worker.start()

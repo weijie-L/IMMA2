@@ -1,14 +1,15 @@
 """质控流水线编排。
 
-处理顺序（对应文档流程的子集，坐标镜像修复与 GSHHG 海陆检查暂未纳入）：
+处理顺序（对应文档流程的子集，坐标镜像修复暂未纳入）：
   1. 基础字段检查
   2. 特殊站号处理（SHIP / MASKSTID）
-  3. 同站同刻位置冲突
-  4. 三点单点漂移
-  5. 特殊零坐标复核标记
-  6. 观测值时间序列尖峰 / 台阶（复核标记）
-  7. 严格去重
-  8. 删除少于 min_records_per_station_year 的“站点—年份”组合
+  3. 海陆检查（GSHHG 或内置国界，明确陆地内部点删除）
+  4. 同站同刻位置冲突
+  5. 三点单点漂移
+  6. 特殊零坐标复核标记
+  7. 观测值时间序列尖峰 / 台阶（复核标记）
+  8. 严格去重
+  9. 删除少于 min_records_per_station_year 的“站点—年份”组合
 
 自动删除只写 QC_FLAG，不物理删除记录；人工可在界面中恢复。
 """
@@ -28,9 +29,14 @@ INTERNAL_COLS = (
 )
 
 
-def run_qc(df: pd.DataFrame, cfg: QCConfig) -> pd.DataFrame:
-    """执行全部自动质控，返回带 QC_FLAG / REVIEW_FLAGS 的 DataFrame。"""
+def run_qc(df: pd.DataFrame, cfg: QCConfig,
+           gshhg_dir: str | None = None) -> pd.DataFrame:
+    """执行全部自动质控，返回带 QC_FLAG / REVIEW_FLAGS 的 DataFrame。
+
+    gshhg_dir 为 GSHHG shapefile 目录；为空时海陆检查退回内置国界底图。
+    """
     df = basic.check_basic(df, cfg)
+    _check_deep_land(df, cfg, gshhg_dir)
     track.check_same_time_conflicts(df, cfg)
     track.check_isolated_spikes(df, cfg)
     track.check_zero_coordinates(df, cfg)
@@ -39,6 +45,26 @@ def run_qc(df: pd.DataFrame, cfg: QCConfig) -> pd.DataFrame:
     _check_strict_duplicates(df, cfg)
     _check_station_year_min(df, cfg)
     return df
+
+
+def _check_deep_land(df: pd.DataFrame, cfg: QCConfig,
+                     gshhg_dir: str | None) -> None:
+    """明确陆地内部点标记 DELETE_DEEP_LAND（可在界面中恢复）。"""
+    if cfg.skip_land:
+        return
+    try:
+        from ..geo import lon_to_pm180
+        from ..landcheck import get_land_checker
+        checker = get_land_checker(gshhg_dir, cfg.land_interior_km)
+    except ImportError:
+        return  # shapely 未安装时静默跳过
+    active = df[df[QC_FLAG_COL] == ""]
+    if len(active) == 0:
+        return
+    mask = checker.deep_land_mask(
+        lon_to_pm180(active[basic.LON_COL].to_numpy(float)),
+        active[basic.LAT_COL].to_numpy(float))
+    df.loc[active.index[mask], QC_FLAG_COL] = flags.DELETE_DEEP_LAND
 
 
 def _check_strict_duplicates(df: pd.DataFrame, cfg: QCConfig) -> None:

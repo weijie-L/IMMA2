@@ -44,7 +44,7 @@ def main(out_dir: str = "sample_data") -> None:
                  ("SHIPC3", 35.0, 320.0)]):
             month_frames.append(make_ship_track(st, 2003, month, 120, lat0, lon0))
         fixed = make_ship_track("FIXED1", 2003, month, 100, 0.0, 0.0)
-        fixed["LATITUDE"], fixed["LONGITUDE"] = 25.0, 121.5
+        fixed["LATITUDE"], fixed["LONGITUDE"] = 25.5, 122.6  # 台湾以东海面
         fixed["VS_CODE"] = 0
         month_frames.append(fixed)
         df = pd.concat(month_frames, ignore_index=True).astype(object)
@@ -66,7 +66,7 @@ def main(out_dir: str = "sample_data") -> None:
             conflict = df.iloc[[80]].copy()
             conflict["LATITUDE"] = df.loc[80, "LATITUDE"] + 15.0
             # 记录数不足的站点
-            small = make_ship_track("TINY99", 2003, month, 5, 5.0, 100.0)
+            small = make_ship_track("TINY99", 2003, month, 5, -10.0, 80.0)
             df = pd.concat([df, ship, dup, conflict, small], ignore_index=True)
 
         df.to_csv(out / f"IMMA1_2003-{month:02d}_VI1.csv", index=False)
