@@ -1,4 +1,12 @@
-"""Met Office MDS 航迹检查（移植自 ET-NCMP/MarineQC track_check.py，BSD-3）。
+"""Met Office MDS 航迹检查。
+
+改编自 Met Office MarineQC 的 track_check.py
+（https://github.com/ET-NCMP/MarineQC，
+© British Crown Copyright 2018, Met Office，BSD-3-Clause，
+完整许可文本见仓库根目录 THIRD_PARTY_NOTICES.md）。
+方法学描述：Atkinson, C. P., N. A. Rayner, J. Roberts-Jones, and
+R. O. Smith (2013), J. Geophys. Res. Oceans, 118, 3507-3529,
+doi:10.1002/jgrc.20257。
 
 对每条船舶轨迹（按站点、按时间）执行多证据组合判定，一个点被标记
 需要同时满足三类证据（比单条规则一票否决更稳）：

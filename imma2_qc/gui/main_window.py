@@ -53,6 +53,17 @@ def app_icon() -> QIcon:
     return QIcon(str(ICON_PNG)) if ICON_PNG.exists() else QIcon()
 
 
+def _bundled_file(name: str) -> Path | None:
+    """查找随程序分发的文件（打包后在 PyInstaller 临时目录，源码运行时在仓库根）。"""
+    import sys
+    roots = [Path(getattr(sys, "_MEIPASS", "")), Path(__file__).resolve().parents[2]]
+    for root in roots:
+        p = root / name
+        if str(root) and p.exists():
+            return p
+    return None
+
+
 class QCWorker(QThread):
     done = Signal(object, object)   # raw_df, qc_df
     failed = Signal(str)
@@ -184,6 +195,9 @@ class MainWindow(QMainWindow):
         menu.addAction("质控参数…", self.edit_config)
         menu.addAction("选择 GSHHG 海岸线目录…", self.choose_gshhg)
         menu.addAction("恢复内置国界底图", self.use_default_basemap)
+
+        help_menu = self.menuBar().addMenu("帮助")
+        help_menu.addAction("关于与引用…", self.show_about)
 
         # 左侧：年份 + 站点
         left = QWidget()
@@ -575,6 +589,35 @@ class MainWindow(QMainWindow):
         self.decisions = DecisionStore(
             self.input_dir / "_qc_workspace" / "manual_decisions.csv")
         self._start_worker(raw_df=None)
+
+    # ---------- 关于 ----------
+    def show_about(self):
+        from .. import __version__
+        text = (
+            f"<b>IMMA2 质控</b> v{__version__}<br><br>"
+            "ICOADS 海洋观测数据预处理与质量控制工具。<br><br>"
+            "<b>致谢与引用</b><br>"
+            "MDS 航迹检查模块改编自 Met Office MarineQC<br>"
+            "(https://github.com/ET-NCMP/MarineQC)<br>"
+            "© British Crown Copyright 2018, Met Office，BSD-3-Clause。<br><br>"
+            "方法学：Atkinson, C. P., N. A. Rayner, J. Roberts-Jones, "
+            "and R. O. Smith (2013), <i>J. Geophys. Res. Oceans</i>, "
+            "118, 3507–3529, doi:10.1002/jgrc.20257<br><br>"
+            "数据来源：Freeman et al. (2017), ICOADS Release 3.0, "
+            "<i>Int. J. Climatol.</i>, 37, 2211–2232, doi:10.1002/joc.4775<br><br>"
+            "GSHHG 海岸线（可选）：Wessel &amp; Smith (1996), "
+            "doi:10.1029/96JB00104<br><br>"
+            "本软件以 BSD-3-Clause 许可发布，完整许可与第三方声明见随附的 "
+            "LICENSE 与 THIRD_PARTY_NOTICES.md。"
+        )
+        box = QMessageBox(self)
+        box.setWindowTitle("关于与引用")
+        box.setTextFormat(Qt.RichText)
+        box.setText(text)
+        notices = _bundled_file("THIRD_PARTY_NOTICES.md")
+        if notices is not None:
+            box.setDetailedText(notices.read_text(encoding="utf-8"))
+        box.exec()
 
     # ---------- 设置 / 导出 ----------
     def edit_config(self):

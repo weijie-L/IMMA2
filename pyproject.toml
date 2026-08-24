@@ -6,6 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "imma2-qc"
 version = "0.1.0"
 description = "ICOADS 海洋观测数据质控：自动质控 + 交互式人工复核桌面程序"
+readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",

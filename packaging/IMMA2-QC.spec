@@ -16,9 +16,12 @@ a = Analysis(
     [os.path.join(ROOT, "run_app.py")],
     pathex=[ROOT],
     binaries=[],
-    # 内置资源（国界底图、窗口图标）随 exe 打包，路径与源码布局一致
+    # 内置资源（国界底图、窗口图标）随 exe 打包，路径与源码布局一致；
+    # 许可与第三方声明随二进制分发（BSD-3 第 2 条要求）
     datas=[(os.path.join(ROOT, "imma2_qc", "assets"),
-            os.path.join("imma2_qc", "assets"))],
+            os.path.join("imma2_qc", "assets")),
+           (os.path.join(ROOT, "LICENSE"), "."),
+           (os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), ".")],
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],

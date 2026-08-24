@@ -144,17 +144,68 @@ python -m pytest tests/ -v               # 运行测试
 ```
 imma2_qc/
 ├── config.py        # 全部阈值与航速档位表（QCConfig）
+├── paths.py         # 各阶段数据目录设置的持久化
 ├── flags.py         # 质控标记常量
-├── geo.py           # 大圆距离、经度归一化
+├── geo.py           # 大圆距离/方位角/插值、经度归一化
 ├── io_utils.py      # CSV 读取、记录 UID
+├── landcheck.py     # 海陆检查（GSHHG / 内置国界）
+├── preprocess/
+│   ├── extract.py   # 第1步 原始 IMMA1 报文提取
+│   ├── normalize.py # 第2步 规整清洗
+│   └── fill_speed.py# 第3步 航速填补（移动站 + 固定站）
 ├── qc/
 │   ├── basic.py     # 基础字段检查、特殊站号
-│   ├── track.py     # 同刻冲突、单点漂移、零坐标
+│   ├── mirror.py    # 单点镜像修复建议
+│   ├── track.py     # 同刻冲突、单点漂移、内插偏差、零坐标
+│   ├── mds_track.py # Met Office MDS 航迹检查（见下方致谢）
 │   ├── timeseries.py# 观测值尖峰/台阶
 │   └── engine.py    # 流水线编排与统计
 ├── decisions.py     # 人工决定持久化
 ├── status.py        # 自动结果+人工决定 → 显示状态
 ├── export.py        # 清洗结果与审计文件导出
 ├── cli.py           # 命令行批处理
-└── gui/             # PySide6 界面（主窗口、地图/时序画布、海岸线底图）
+└── gui/             # PySide6 界面（主窗口、地图/时序画布、底图、目录设置）
 ```
+
+## 致谢与引用
+
+本项目的 **MDS 航迹检查**模块（`imma2_qc/qc/mds_track.py`）改编自 Met Office
+的 [MarineQC](https://github.com/ET-NCMP/MarineQC) 项目
+（© British Crown Copyright 2018, Met Office，BSD-3-Clause），
+方法学见 Atkinson et al. (2013)。完整许可文本与其他第三方声明见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+使用本软件的质控结果发表成果时，请一并引用：
+
+```bibtex
+@article{atkinson2013,
+  author  = {Atkinson, C. P. and Rayner, N. A. and Roberts-Jones, J.
+             and Smith, R. O.},
+  title   = {Assessing the quality of sea surface temperature observations
+             from drifting buoys and ships on a platform-by-platform basis},
+  journal = {Journal of Geophysical Research: Oceans},
+  volume  = {118},
+  pages   = {3507--3529},
+  year    = {2013},
+  doi     = {10.1002/jgrc.20257}
+}
+
+@article{freeman2017,
+  author  = {Freeman, E. and Woodruff, S. D. and Worley, S. J. and others},
+  title   = {{ICOADS} Release 3.0: a major update to the historical
+             marine climate record},
+  journal = {International Journal of Climatology},
+  volume  = {37},
+  pages   = {2211--2232},
+  year    = {2017},
+  doi     = {10.1002/joc.4775}
+}
+```
+
+使用 GSHHG 海岸线做海陆检查时，另请引用 Wessel & Smith (1996)，
+doi:10.1029/96JB00104。
+
+## 许可证
+
+本项目以 BSD-3-Clause 许可发布（见 [LICENSE](LICENSE)），
+与所改编的 Met Office MarineQC 保持一致。
