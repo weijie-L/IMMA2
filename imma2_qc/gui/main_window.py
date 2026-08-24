@@ -10,10 +10,10 @@ import pandas as pd
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QPlainTextEdit, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
-    QTabWidget, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
+    QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+    QMessageBox, QPlainTextEdit, QPushButton, QSplitter, QTableWidget,
+    QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from .. import flags
@@ -23,12 +23,17 @@ from ..export import export_results
 from ..io_utils import UID_COL, find_data_files, load_files
 from ..qc.basic import (DT_COL, LAT_COL, LON_COL, QC_FLAG_COL, REVIEW_COL,
                         VALUE_COL, YEAR_COL)
+from ..paths import PathsConfig, load_paths
+from ..preprocess.extract import extract_raw
+from ..preprocess.fill_speed import fill_fixed_stations, fill_moving_stations
+from ..preprocess.normalize import normalize_dir
 from ..qc.engine import run_qc
 from ..status import (DELETED_STATUSES, STATUS_AUTO_DEL, STATUS_LABELS,
                       STATUS_MANUAL_DEL, STATUS_MANUAL_KEEP, STATUS_REVIEW,
                       compute_status)
 from .basemap import load_coastlines, load_default_basemap
 from .canvas import STATUS_COL, MapCanvas, SeriesCanvas
+from .paths_dialog import PathsDialog
 
 matplotlib.rcParams["font.sans-serif"] = [
     "Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "WenQuanYi Zen Hei",
@@ -59,6 +64,27 @@ class QCWorker(QThread):
                 raw = load_files(files, self.cfg)
             qc = run_qc(raw, self.cfg)
             self.done.emit(raw, qc)
+        except Exception:
+            self.failed.emit(traceback.format_exc())
+
+
+class PipelineWorker(QThread):
+    """依次执行若干预处理步骤，日志通过信号回传主线程。"""
+
+    log = Signal(str)
+    finished_ok = Signal()
+    failed = Signal(str)
+
+    def __init__(self, steps):
+        super().__init__()
+        self.steps = steps  # [(标题, callable(progress))]
+
+    def run(self):
+        try:
+            for label, fn in self.steps:
+                self.log.emit(f"===== {label} =====")
+                fn(self.log.emit)
+            self.finished_ok.emit()
         except Exception:
             self.failed.emit(traceback.format_exc())
 
@@ -97,6 +123,7 @@ class MainWindow(QMainWindow):
         self.resize(1360, 860)
 
         self.cfg = QCConfig()
+        self.paths = load_paths()
         self.raw_df: pd.DataFrame | None = None
         self.df: pd.DataFrame | None = None
         self.status: pd.Series | None = None
@@ -104,8 +131,10 @@ class MainWindow(QMainWindow):
         self.input_dir: Path | None = None
         self.selection: set[str] = set()
         self.worker: QCWorker | None = None
+        self.pipeline_worker: PipelineWorker | None = None
 
         self._build_ui()
+        self._apply_saved_basemap()
         self._update_enabled()
 
     # ---------- UI 搭建 ----------
@@ -123,6 +152,20 @@ class MainWindow(QMainWindow):
         self.act_restore = tb.addAction("恢复所选", self.restore_selected)
         self.act_undo = tb.addAction("清除所选人工决定", self.clear_decisions_selected)
         self.act_clear_sel = tb.addAction("清空选择", self.clear_selection)
+
+        flow = self.menuBar().addMenu("流程")
+        flow.addAction("设置数据目录…", self.edit_paths)
+        flow.addSeparator()
+        self.act_stage1 = flow.addAction("第1步 数据提取（原始 IMMA1 → 月度 CSV）",
+                                         lambda: self.run_pipeline(("extract",)))
+        self.act_stage2 = flow.addAction("第2步 规整清洗",
+                                         lambda: self.run_pipeline(("normalize",)))
+        self.act_stage3 = flow.addAction("第3步 航速填补（移动站 + 固定站）",
+                                         lambda: self.run_pipeline(("fill",)))
+        self.act_stage123 = flow.addAction(
+            "一键执行 第1-3步", lambda: self.run_pipeline(("extract", "normalize", "fill")))
+        flow.addSeparator()
+        self.act_stage4 = flow.addAction("第4步 加载清洗数据并质控", self.load_clean_and_qc)
 
         menu = self.menuBar().addMenu("设置")
         menu.addAction("质控参数…", self.edit_config)
@@ -154,9 +197,8 @@ class MainWindow(QMainWindow):
         self.stats_label.setWordWrap(True)
         ll.addWidget(self.stats_label)
 
-        # 中间：地图 / 时间序列（地图默认加载内置国界底图）
+        # 中间：地图 / 时间序列（底图由 _apply_saved_basemap 设置）
         self.map_canvas = MapCanvas()
-        self.map_canvas.set_coastlines(load_default_basemap())
         self.series_canvas = SeriesCanvas(value_label=self.cfg.value_col)
         for c in (self.map_canvas, self.series_canvas):
             c.selection_made.connect(self._add_selection)
@@ -191,7 +233,19 @@ class MainWindow(QMainWindow):
         split.addWidget(right)
         split.setSizes([280, 1080])
         self.setCentralWidget(split)
-        self.statusBar().showMessage("请打开数据目录")
+
+        # 底部：流程日志（默认隐藏，运行流程时自动弹出）
+        self.log_edit = QPlainTextEdit()
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setMaximumBlockCount(50000)
+        self.log_dock = QDockWidget("流程日志", self)
+        self.log_dock.setWidget(self.log_edit)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.log_dock)
+        self.log_dock.hide()
+
+        self.statusBar().showMessage(
+            "流程菜单：设置数据目录 → 第1-3步预处理 → 第4步加载质控；"
+            "也可直接“打开数据目录”载入已清洗数据")
 
     def _update_enabled(self):
         has_data = self.df is not None
@@ -402,6 +456,88 @@ class MainWindow(QMainWindow):
         self.refresh_views()
         self.statusBar().showMessage(f"人工决定共 {len(self.decisions)} 条（已自动保存）")
 
+    # ---------- 预处理流程 ----------
+    def edit_paths(self):
+        dlg = PathsDialog(self.paths, self)
+        if dlg.exec() == QDialog.Accepted and dlg.result_paths is not None:
+            self.paths = dlg.result_paths
+            self._apply_saved_basemap()
+            self.statusBar().showMessage("数据目录已保存")
+
+    def _apply_saved_basemap(self):
+        lines = []
+        if self.paths.gshhg_dir:
+            lines = load_coastlines(self.paths.gshhg_dir)
+        self.map_canvas.set_coastlines(lines or load_default_basemap())
+
+    def _require_paths(self, fields: list[str]) -> bool:
+        missing = [PathsConfig.FIELDS_CN[f] for f in fields
+                   if not getattr(self.paths, f).strip()]
+        if missing:
+            QMessageBox.warning(self, "缺少目录设置",
+                                "请先在“流程 → 设置数据目录”中配置：\n"
+                                + "\n".join(missing))
+            self.edit_paths()
+            return False
+        return True
+
+    def run_pipeline(self, stages: tuple):
+        if self.pipeline_worker is not None and self.pipeline_worker.isRunning():
+            QMessageBox.information(self, "请稍候", "预处理正在运行中")
+            return
+        need = {"extract": ["raw_dir", "extract_dir"],
+                "normalize": ["extract_dir", "clean_dir"],
+                "fill": ["clean_dir"]}
+        fields = sorted({f for s in stages for f in need[s]})
+        if not self._require_paths(fields):
+            return
+
+        p = self.paths
+        catalog = {
+            "extract": ("第1步 数据提取",
+                        lambda log: extract_raw(p.raw_dir, p.extract_dir, progress=log)),
+            "normalize": ("第2步 规整清洗",
+                          lambda log: normalize_dir(p.extract_dir, p.clean_dir, progress=log)),
+            "fill": ("第3步 航速填补",
+                     lambda log: (fill_moving_stations(p.clean_dir, progress=log),
+                                  fill_fixed_stations(p.clean_dir, progress=log))),
+        }
+        steps = [catalog[s] for s in stages]
+
+        self.log_dock.show()
+        self.log_edit.appendPlainText("")
+        self._set_pipeline_running(True)
+        self.pipeline_worker = PipelineWorker(steps)
+        self.pipeline_worker.log.connect(self.log_edit.appendPlainText)
+        self.pipeline_worker.finished_ok.connect(self._pipeline_done)
+        self.pipeline_worker.failed.connect(self._pipeline_failed)
+        self.pipeline_worker.start()
+        self.statusBar().showMessage("预处理运行中…（详见流程日志）")
+
+    def _set_pipeline_running(self, running: bool):
+        for act in (self.act_stage1, self.act_stage2, self.act_stage3,
+                    self.act_stage123, self.act_stage4):
+            act.setEnabled(not running)
+
+    def _pipeline_done(self):
+        self._set_pipeline_running(False)
+        self.log_edit.appendPlainText("===== 预处理完成 =====")
+        self.statusBar().showMessage("预处理完成，可执行“第4步 加载清洗数据并质控”")
+
+    def _pipeline_failed(self, msg: str):
+        self._set_pipeline_running(False)
+        self.log_edit.appendPlainText(msg)
+        self.log_edit.appendPlainText("===== 预处理失败 =====")
+        self.statusBar().showMessage("预处理失败（详见流程日志）")
+
+    def load_clean_and_qc(self):
+        if not self._require_paths(["clean_dir"]):
+            return
+        self.input_dir = Path(self.paths.clean_dir)
+        self.decisions = DecisionStore(
+            self.input_dir / "_qc_workspace" / "manual_decisions.csv")
+        self._start_worker(raw_df=None)
+
     # ---------- 设置 / 导出 ----------
     def edit_config(self):
         dlg = ConfigDialog(self.cfg, self)
@@ -421,6 +557,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "海岸线", "未在该目录找到可用的 GSHHS L1 shapefile")
             return
         self.map_canvas.set_coastlines(lines)
+        self.paths.gshhg_dir = d
+        from ..paths import save_paths
+        save_paths(self.paths)
         self.refresh_views()
 
     def use_default_basemap(self):
@@ -428,7 +567,8 @@ class MainWindow(QMainWindow):
         self.refresh_views()
 
     def export_results(self):
-        d = QFileDialog.getExistingDirectory(self, "选择输出目录")
+        d = QFileDialog.getExistingDirectory(self, "选择输出目录",
+                                             self.paths.qc_output_dir or "")
         if not d:
             return
         out = Path(d)
