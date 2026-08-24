@@ -27,7 +27,7 @@ from ..qc.engine import run_qc
 from ..status import (DELETED_STATUSES, STATUS_AUTO_DEL, STATUS_LABELS,
                       STATUS_MANUAL_DEL, STATUS_MANUAL_KEEP, STATUS_REVIEW,
                       compute_status)
-from .basemap import load_coastlines
+from .basemap import load_coastlines, load_default_basemap
 from .canvas import STATUS_COL, MapCanvas, SeriesCanvas
 
 matplotlib.rcParams["font.sans-serif"] = [
@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         menu = self.menuBar().addMenu("设置")
         menu.addAction("质控参数…", self.edit_config)
         menu.addAction("选择 GSHHG 海岸线目录…", self.choose_gshhg)
+        menu.addAction("恢复内置国界底图", self.use_default_basemap)
 
         # 左侧：年份 + 站点
         left = QWidget()
@@ -153,8 +154,9 @@ class MainWindow(QMainWindow):
         self.stats_label.setWordWrap(True)
         ll.addWidget(self.stats_label)
 
-        # 中间：地图 / 时间序列
+        # 中间：地图 / 时间序列（地图默认加载内置国界底图）
         self.map_canvas = MapCanvas()
+        self.map_canvas.set_coastlines(load_default_basemap())
         self.series_canvas = SeriesCanvas(value_label=self.cfg.value_col)
         for c in (self.map_canvas, self.series_canvas):
             c.selection_made.connect(self._add_selection)
@@ -419,6 +421,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "海岸线", "未在该目录找到可用的 GSHHS L1 shapefile")
             return
         self.map_canvas.set_coastlines(lines)
+        self.refresh_views()
+
+    def use_default_basemap(self):
+        self.map_canvas.set_coastlines(load_default_basemap())
         self.refresh_views()
 
     def export_results(self):

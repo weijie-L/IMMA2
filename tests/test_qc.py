@@ -206,3 +206,16 @@ def test_export_end_to_end(tmp_path):
 
     s = summarize(df)
     assert s["INPUT"].sum() == len(df)
+
+
+# ---------- 内置底图 ----------
+
+def test_default_basemap_loads():
+    pytest.importorskip("shapefile")
+    from imma2_qc.gui.basemap import DEFAULT_BASEMAP, load_default_basemap
+    assert DEFAULT_BASEMAP.exists()
+    lines = load_default_basemap()
+    assert len(lines) > 100
+    allpts = np.vstack(lines)
+    assert allpts[:, 0].min() >= -180.0 and allpts[:, 0].max() <= 180.0
+    assert allpts[:, 1].min() >= -90.0 and allpts[:, 1].max() <= 90.0

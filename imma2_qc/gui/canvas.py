@@ -137,20 +137,29 @@ class MapCanvas(BaseCanvas):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._coastlines: list[np.ndarray] = []
+        self._coast_xy: np.ndarray | None = None
         self.track_gap_days = 30.0
         self.draw_track = False
 
     def set_coastlines(self, lines: list[np.ndarray]) -> None:
-        self._coastlines = lines
+        """折线列表合并为 NaN 分隔的单一数组，绘制时只调用一次 plot。"""
+        if not lines:
+            self._coast_xy = None
+            return
+        sep = np.full((1, 2), np.nan)
+        parts: list[np.ndarray] = []
+        for seg in lines:
+            parts.append(seg)
+            parts.append(sep)
+        self._coast_xy = np.vstack(parts)
 
     def _coords(self, sub: pd.DataFrame):
         return lon_to_pm180(sub[LON_COL].to_numpy(float)), sub[LAT_COL].to_numpy(float)
 
     def _plot_background(self, sub: pd.DataFrame) -> None:
-        for seg in self._coastlines:
-            self.ax.plot(seg[:, 0], seg[:, 1], color=palette.COAST,
-                         linewidth=0.5, zorder=1)
+        if self._coast_xy is not None:
+            self.ax.plot(self._coast_xy[:, 0], self._coast_xy[:, 1],
+                         color=palette.COAST, linewidth=0.5, zorder=1)
         if self.draw_track:
             self._plot_track(sub)
 

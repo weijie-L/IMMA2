@@ -21,3 +21,6 @@ imma2-qc-batch = "imma2_qc.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["imma2_qc*"]
+
+[tool.setuptools.package-data]
+imma2_qc = ["assets/basemap/*"]
