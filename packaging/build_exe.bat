@@ -21,7 +21,7 @@ python -c "import sys; print(sys.executable)" >> "%LOG%" 2>&1
 echo.
 echo === 第 1 步 / 共 3 步：安装依赖（可能需要几分钟，请耐心等待）===
 echo --- pip install --- >> "%LOG%"
-python -m pip install -r requirements.txt pyinstaller >> "%LOG%" 2>&1
+python -m pip install -r requirements.txt pyinstaller pillow >> "%LOG%" 2>&1
 if errorlevel 1 (
     echo [错误] 依赖安装失败。常见原因：
     echo   1. Python 版本过新或过旧（推荐 3.11 / 3.12）；
@@ -32,6 +32,7 @@ if errorlevel 1 (
 
 echo.
 echo === 第 2 步 / 共 3 步：打包（同样需要几分钟）===
+if exist "packaging\icon_source.png" python packaging\make_icon.py >> "%LOG%" 2>&1
 echo --- pyinstaller --- >> "%LOG%"
 python -m PyInstaller --clean --noconfirm packaging\IMMA2-QC.spec >> "%LOG%" 2>&1
 if errorlevel 1 goto :error

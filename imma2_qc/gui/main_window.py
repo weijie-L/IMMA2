@@ -9,6 +9,7 @@ import matplotlib
 import pandas as pd
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
     QFileDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
@@ -44,6 +45,12 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 ALL_STATIONS = "<全部站点>"
 TABLE_MAX_ROWS = 5000
+
+ICON_PNG = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+
+
+def app_icon() -> QIcon:
+    return QIcon(str(ICON_PNG)) if ICON_PNG.exists() else QIcon()
 
 
 class QCWorker(QThread):
@@ -124,6 +131,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("IMMA2 质控")
+        self.setWindowIcon(app_icon())
         self.resize(1360, 860)
 
         self.cfg = QCConfig()
@@ -620,7 +628,12 @@ class MainWindow(QMainWindow):
 
 def main():
     import sys
+    if sys.platform == "win32":
+        # 让 Windows 任务栏使用程序自己的图标（而不是 Python 的）
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("imma2.qc")
     app = QApplication(sys.argv)
+    app.setWindowIcon(app_icon())
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

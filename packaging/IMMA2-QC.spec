@@ -8,14 +8,17 @@
 import os
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
+# exe 图标：由 packaging/make_icon.py 生成；不存在时不设置
+ICON = os.path.join(SPECPATH, "icon.ico")
+ICON = ICON if os.path.exists(ICON) else None
 
 a = Analysis(
     [os.path.join(ROOT, "run_app.py")],
     pathex=[ROOT],
     binaries=[],
-    # 内置国界底图随 exe 打包，路径与源码布局一致，basemap.py 无需改动
-    datas=[(os.path.join(ROOT, "imma2_qc", "assets", "basemap"),
-            os.path.join("imma2_qc", "assets", "basemap"))],
+    # 内置资源（国界底图、窗口图标）随 exe 打包，路径与源码布局一致
+    datas=[(os.path.join(ROOT, "imma2_qc", "assets"),
+            os.path.join("imma2_qc", "assets"))],
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],
@@ -38,4 +41,5 @@ exe = EXE(
     upx=False,
     console=False,          # 图形界面程序，不带控制台窗口
     disable_windowed_traceback=False,
+    icon=ICON,
 )
